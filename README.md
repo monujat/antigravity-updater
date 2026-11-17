@@ -1,7 +1,7 @@
 # 🚀 Antigravity IDE Updater
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/monujat/antigravity-updater/main/dropzone/icon.png" alt="Antigravity IDE Updater Logo" width="110" onerror="this.style.display='none'"/>
+  <img src="dropzone/icon.png" alt="Antigravity IDE Updater Logo" width="110"/>
 </p>
 
 <p align="center">
