@@ -1,0 +1,18 @@
+# Temporary and log files
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# OS specific files
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Local archives
+*.tar.gz
+*.tgz
+*.tar.xz
+*.zip
+*.dmg

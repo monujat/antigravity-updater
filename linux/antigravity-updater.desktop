@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Update Antigravity IDE
+Comment=Update Antigravity IDE to the latest version
+Exec=antigravity-updater
+Icon=/usr/share/pixmaps/antigravity.png
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true
+Keywords=antigravity;ide;update;upgrade;

@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -e
+
+# ==============================================================================
+# Antigravity IDE - Core Update Engine
+# Part of the Antigravity IDE Updater suite (https://github.com/monujat/antigravity-updater)
+#
+# Performs atomic backup, extraction, deployment, permission configuration,
+# and automatic rollback on failure.
+# Must be executed as root (via sudo or pkexec).
+# ==============================================================================
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This update engine must be run as root (use sudo or pkexec)." >&2
+    exit 1
+fi
+
+INPUT_SOURCE="$1"
+
+if [ -z "$INPUT_SOURCE" ]; then
+    echo "Error: No input file or directory specified." >&2
+    exit 1
+fi
+
+if [ ! -e "$INPUT_SOURCE" ]; then
+    echo "Error: Specified path '$INPUT_SOURCE' does not exist." >&2
+    exit 1
+fi
+
+TARGET_DIR="/usr/share/antigravity"
+BACKUP_DIR="/usr/share/antigravity.bak"
+TEMP_DIR=""
+
+cleanup() {
+    if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
+trap cleanup EXIT INT TERM
+
+rollback() {
+    local err=$?
+    if [ $err -ne 0 ]; then
+        echo "# Error encountered during update (code $err)! Restoring backup..." >&2
+        if [ -d "$BACKUP_DIR" ]; then
+            rm -rf "$TARGET_DIR"
+            mv "$BACKUP_DIR" "$TARGET_DIR"
+            echo "Successfully rolled back to previous installation." >&2
+        fi
+    fi
+}
+trap rollback ERR
+
+echo "10"
+echo "# Analyzing update source..."
+SOURCE_DIR=""
+
+if [ -d "$INPUT_SOURCE" ]; then
+    # Verify binary exists inside directory or a subdirectory
+    FOUND_BIN=$(find "$INPUT_SOURCE" -maxdepth 2 -type f \( -name "antigravity" -o -name "antigravity-ide" \) ! -path "*/bin/*" 2>/dev/null | head -n 1)
+    if [ -n "$FOUND_BIN" ]; then
+        SOURCE_DIR="$(dirname "$FOUND_BIN")"
+    else
+        echo "Error: Could not locate antigravity executable in '$INPUT_SOURCE'." >&2
+        exit 1
+    fi
+else
+    # It is an archive file
+    echo "20"
+    echo "# Preparing extraction workspace..."
+    TEMP_DIR=$(mktemp -d /tmp/antigravity_update_XXXXXX)
+    
+    echo "30"
+    echo "# Extracting archive $(basename "$INPUT_SOURCE")..."
+    case "$INPUT_SOURCE" in
+        *.tar.gz|*.tgz)
+            tar -xzf "$INPUT_SOURCE" -C "$TEMP_DIR"
+            ;;
+        *.tar.xz)
+            tar -xJf "$INPUT_SOURCE" -C "$TEMP_DIR"
+            ;;
+        *.zip)
+            if command -v unzip >/dev/null 2>&1; then
+                unzip -q "$INPUT_SOURCE" -d "$TEMP_DIR"
+            else
+                echo "Error: unzip command not found." >&2
+                exit 1
+            fi
+            ;;
+        *)
+            if ! tar -xf "$INPUT_SOURCE" -C "$TEMP_DIR" 2>/dev/null; then
+                echo "Error: Unsupported archive format: $INPUT_SOURCE" >&2
+                exit 1
+            fi
+            ;;
+    esac
+
+    # Find the directory containing the binary
+    FOUND_BIN=$(find "$TEMP_DIR" -maxdepth 3 -type f \( -name "antigravity" -o -name "antigravity-ide" \) ! -path "*/bin/*" 2>/dev/null | head -n 1)
+    if [ -n "$FOUND_BIN" ]; then
+        SOURCE_DIR="$(dirname "$FOUND_BIN")"
+    else
+        echo "Error: Archive did not contain an antigravity or antigravity-ide binary." >&2
+        exit 1
+    fi
+fi
+
+echo "50"
+echo "# Checking for running Antigravity processes..."
+# Gracefully stop any active Antigravity instances to avoid locked files
+PIDS=$(pgrep -f "/usr/share/antigravity/antigravity" 2>/dev/null || true)
+if [ -n "$PIDS" ]; then
+    echo "# Terminating running Antigravity instances..."
+    kill -TERM $PIDS 2>/dev/null || true
+    sleep 2
+    REMAINING=$(pgrep -f "/usr/share/antigravity/antigravity" 2>/dev/null || true)
+    if [ -n "$REMAINING" ]; then
+        kill -9 $REMAINING 2>/dev/null || true
+    fi
+fi
+
+echo "60"
+echo "# Creating backup of current installation..."
+if [ -d "$TARGET_DIR" ]; then
+    if [ -d "$BACKUP_DIR" ]; then
+        rm -rf "$BACKUP_DIR"
+    fi
+    mv "$TARGET_DIR" "$BACKUP_DIR"
+fi
+
+echo "75"
+echo "# Installing new Antigravity files..."
+mkdir -p "$TARGET_DIR"
+cp -a "$SOURCE_DIR/." "$TARGET_DIR/"
+
+echo "85"
+echo "# Configuring binary and launcher scripts..."
+
+# Rename binary if necessary
+if [ -f "$TARGET_DIR/antigravity-ide" ]; then
+    mv -f "$TARGET_DIR/antigravity-ide" "$TARGET_DIR/antigravity"
+fi
+ln -sf antigravity "$TARGET_DIR/antigravity-ide"
+
+# Configure wrapper script in bin/
+mkdir -p "$TARGET_DIR/bin"
+if [ -f "$SOURCE_DIR/bin/antigravity-ide" ]; then
+    sed -e 's|/usr/share/antigravity-ide|/usr/share/antigravity|g' \
+        -e 's|ELECTRON="\$VSCODE_PATH/antigravity-ide"|ELECTRON="\$VSCODE_PATH/antigravity"|g' \
+        -e "s|which -a 'antigravity-ide'|which -a 'antigravity'|g" \
+        -e 's|antigravity-ide|antigravity|g' \
+        "$SOURCE_DIR/bin/antigravity-ide" > "$TARGET_DIR/bin/antigravity"
+    chmod 755 "$TARGET_DIR/bin/antigravity"
+    ln -sf antigravity "$TARGET_DIR/bin/antigravity-ide"
+elif [ -f "$SOURCE_DIR/bin/antigravity" ]; then
+    cp -a "$SOURCE_DIR/bin/antigravity" "$TARGET_DIR/bin/antigravity"
+    chmod 755 "$TARGET_DIR/bin/antigravity"
+    ln -sf antigravity "$TARGET_DIR/bin/antigravity-ide"
+elif [ -f "$BACKUP_DIR/bin/antigravity" ]; then
+    cp -a "$BACKUP_DIR/bin/antigravity" "$TARGET_DIR/bin/antigravity"
+    chmod 755 "$TARGET_DIR/bin/antigravity"
+    ln -sf antigravity "$TARGET_DIR/bin/antigravity-ide"
+fi
+
+# Ensure /usr/bin symlinks
+mkdir -p /usr/bin
+ln -sf /usr/share/antigravity/bin/antigravity /usr/bin/antigravity
+ln -sf /usr/share/antigravity/bin/antigravity /usr/bin/antigravity-ide
+
+# Update desktop files if present in source
+if [ -f "$TARGET_DIR/antigravity.desktop" ]; then
+    cp -f "$TARGET_DIR/antigravity.desktop" /usr/share/applications/antigravity.desktop 2>/dev/null || true
+fi
+if [ -f "$TARGET_DIR/antigravity-url-handler.desktop" ]; then
+    cp -f "$TARGET_DIR/antigravity-url-handler.desktop" /usr/share/applications/antigravity-url-handler.desktop 2>/dev/null || true
+fi
+
+echo "95"
+echo "# Applying file ownership and sandbox permissions..."
+chown -R root:root "$TARGET_DIR"
+if [ -f "$TARGET_DIR/chrome-sandbox" ]; then
+    chmod 4755 "$TARGET_DIR/chrome-sandbox"
+fi
+chmod 755 "$TARGET_DIR/antigravity"
+
+echo "100"
+echo "# Update finished successfully!"
+echo "SUCCESS"

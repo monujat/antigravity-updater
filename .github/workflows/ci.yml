@@ -1,0 +1,27 @@
+name: CI Script Verification
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck on bash scripts
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck -e SC2086,SC1090 install.sh linux/antigravity-updater linux/antigravity-update-engine linux/setup-linux.sh macos/update-antigravity.sh macos/setup-mac.sh
+
+      - name: Syntax check bash scripts
+        run: |
+          bash -n install.sh
+          bash -n linux/antigravity-updater
+          bash -n linux/antigravity-update-engine
+          bash -n linux/setup-linux.sh
+          bash -n macos/update-antigravity.sh
+          bash -n macos/setup-mac.sh
