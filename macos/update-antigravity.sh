@@ -131,9 +131,12 @@ perform_update() {
     if [ ! -w "/Applications" ]; then
         # Needs sudo or fallback to user ~/Applications
         if [ "$EUID" -ne 0 ]; then
-            echo "Need administrator permission to install to /Applications."
-            echo "Requesting sudo access..."
-            sudo true
+            echo "Administrator permission required to install to /Applications."
+            if ! sudo -v 2>/dev/null; then
+                echo "Administrator elevation not granted; installing to user directory ($USER_APP)..."
+                dest="$USER_APP"
+                mkdir -p "$HOME/Applications"
+            fi
         fi
     fi
 
